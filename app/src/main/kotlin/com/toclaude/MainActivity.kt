@@ -70,13 +70,18 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val firstRun = !prefs.getBoolean("tipsShown", false)
+        ClaudeShortcut.refresh(this)   // 桌面上的 Claude 图标跟上 Claude 当前的图标
         setContent {
             val dark = isSystemInDarkTheme()
             val scheme = if (dark) darkColorScheme(primary = Color(0xFF6FD6BC)) else lightColorScheme(primary = Color(0xFF0E7C66))
             MaterialTheme(colorScheme = scheme) {
                 var showTips by remember { mutableStateOf(firstRun) }
                 Gate(onCancel = { finish() }, onOpen = { openClaude() }, onTips = { showTips = true })
-                if (showTips) Tips(onClose = { showTips = false; prefs.edit().putBoolean("tipsShown", true).apply() }, onClaudeInfo = { openClaudeInfo() })
+                if (showTips) Tips(
+                    onClose = { showTips = false; prefs.edit().putBoolean("tipsShown", true).apply() },
+                    onClaudeInfo = { openClaudeInfo() },
+                    onPin = { Toast.makeText(this, ClaudeShortcut.pin(this), Toast.LENGTH_LONG).show() },
+                )
             }
         }
     }
@@ -243,15 +248,21 @@ private fun Line(key: String, value: String, color: Color = Color.Unspecified) {
 }
 
 @Composable
-private fun Tips(onClose: () -> Unit, onClaudeInfo: () -> Unit) {
+private fun Tips(onClose: () -> Unit, onClaudeInfo: () -> Unit, onPin: () -> Unit) {
     AlertDialog(
         onDismissRequest = onClose,
         title = { Text("使用提示") },
         text = {
             Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
                 Tip(
-                    "用这个图标代替 Claude 的原生图标",
-                    "以后从 To Claude 打开 Claude，先看一眼网络再进去。原来的 Claude 图标可以从桌面拿掉，免得误点：\n\n" +
+                    "在桌面放一个「Claude」图标",
+                    "点下面的按钮，桌面上会多一个「Claude」图标：样子就是手机上 Claude App 自己的图标（角上会有 To Claude 的小标，" +
+                        "和原版区分开），点它先看网络，确认后再打开 Claude。以后就用它代替原版图标，To Claude 自己的图标也可以收起来。",
+                )
+                Button(onClick = onPin, modifier = Modifier.padding(top = 6.dp)) { Text("在桌面创建 Claude 图标") }
+                Tip(
+                    "把原来的图标从桌面拿掉",
+                    "原版 Claude 图标（和 To Claude 自己的图标）可以从桌面拿掉，免得误点：\n\n" +
                         "• 推荐：把桌面改成「抽屉」布局（桌面空白处双指捏合 → 桌面设置 → 桌面布局），然后长按 Claude 图标选「移除」（不是「卸载」）。App 收进应用抽屉，通知照常。\n" +
                         "• 或者：把 Claude 图标拖进一个不常翻的文件夹。\n" +
                         "• 不建议用系统的「隐藏应用」：荣耀、华为等手机会把被隐藏 App 的通知一起藏掉，Claude 回复完你就收不到提醒了。\n" +
