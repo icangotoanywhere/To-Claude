@@ -1,4 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">To Claude</string>
+    <string name="acc_label">To Claude：打开 Claude 前先检查网络</string>
+    <string name="acc_desc">打开后，Claude 打开或从后台切回来时，To Claude 会先弹出网络检查卡片，点「打开」才继续用 Claude，点「取消」回到桌面。
+
+本服务只接收「哪个 App 来到了前台」的通知（只有 App 的包名），用来认出 Claude；不读取屏幕上的任何文字和内容，不收集、不上传任何信息。系统的提示是所有无障碍服务通用的说法。
+
+可以在 To Claude 的「设置」里调整多久内不重复检查。</string>
 </resources>

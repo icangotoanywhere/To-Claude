@@ -64,10 +64,25 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val CLAUDE_PKG = "com.anthropic.claude"
         private const val PREFS = "toclaude"
+        /** 由无障碍服务弹出：Claude 已经在后面了，「打开」只需关掉卡片，「取消」回桌面 */
+        const val EXTRA_INTERCEPT = "intercept"
+    }
+
+    private val intercept = mutableStateOf(false)
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intercept.value = intent.getBooleanExtra(EXTRA_INTERCEPT, false)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        intercept.value = intent?.getBooleanExtra(EXTRA_INTERCEPT, false) == true
+        // 返回键 = 取消（拦截时如果直接关掉卡片，就等于放 Claude 过去了）
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() = cancel()
+        })
         val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val firstRun = !prefs.getBoolean("tipsShown", false)
         ClaudeShortcut.refresh(this)   // 桌面上的 Claude 图标跟上 Claude 当前的图标
@@ -76,7 +91,13 @@ class MainActivity : ComponentActivity() {
             val scheme = if (dark) darkColorScheme(primary = Color(0xFF6FD6BC)) else lightColorScheme(primary = Color(0xFF0E7C66))
             MaterialTheme(colorScheme = scheme) {
                 var showTips by remember { mutableStateOf(firstRun) }
-                Gate(onCancel = { finish() }, onOpen = { openClaude() }, onTips = { showTips = true })
+                var showSettings by remember { mutableStateOf(false) }
+                Gate(
+                    intercept = intercept.value,
+                    onCancel = { cancel() }, onOpen = { open() },
+                    onTips = { showTips = true }, onSettings = { showSettings = true },
+                )
+                if (showSettings) SettingsDialog(onClose = { showSettings = false })
                 if (showTips) Tips(
                     onClose = { showTips = false; prefs.edit().putBoolean("tipsShown", true).apply() },
                     onClaudeInfo = { openClaudeInfo() },
@@ -84,6 +105,19 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    private fun open() {
+        GatePrefs.markConfirmed(this)   // 记下来：接下来一段时间切到 Claude 不再弹（见「设置」）
+        if (intercept.value) finish() else openClaude()
+    }
+
+    private fun cancel() {
+        if (intercept.value) {
+            // Claude 已经在卡片后面了：回到桌面
+            runCatching { startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        }
+        finish()
     }
 
     private fun openClaude() {
@@ -128,7 +162,7 @@ private suspend fun runChecks(ctx: Context): Result = coroutineScope {
 }
 
 @Composable
-private fun Gate(onCancel: () -> Unit, onOpen: () -> Unit, onTips: () -> Unit) {
+private fun Gate(intercept: Boolean, onCancel: () -> Unit, onOpen: () -> Unit, onTips: () -> Unit, onSettings: () -> Unit) {
     val ctx = LocalContext.current
     var result by remember { mutableStateOf<Result?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
@@ -155,8 +189,13 @@ private fun Gate(onCancel: () -> Unit, onOpen: () -> Unit, onTips: () -> Unit) {
                     Column(Modifier.weight(1f)) {
                         Text("打开 Claude 前看一眼网络", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                     }
-                    TextButton(onClick = onTips) { Text("使用提示") }
+                    TextButton(onClick = onSettings) { Text("设置") }
+                    TextButton(onClick = onTips) { Text("提示") }
                 }
+                if (intercept) Text(
+                    "Claude 正要打开。点「打开」继续，点「取消」回到桌面。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Spacer(Modifier.height(10.dp))
 
                 val r = result
@@ -270,6 +309,10 @@ private fun Tips(onClose: () -> Unit, onClaudeInfo: () -> Unit, onPin: () -> Uni
                 )
                 TextButton(onClick = onClaudeInfo) { Text("打开 Claude 的应用信息") }
                 Tip(
+                    "让原版 Claude 也先过检查（可选）",
+                    "在「设置」里打开「Claude 打开时先检查网络」后，不管从哪里打开 Claude、或者从后台切回来，都会先弹出这张卡片。需要在系统「无障碍」里手动打开，详见「设置」里的说明。",
+                )
+                Tip(
                     "让检查结果准确",
                     "本 App 查到的是它自己的网络出口。代理软件如果用了「分应用代理」，请让 Claude 和 To Claude 都走代理（或者都选「全部应用」），两者的出口才一致。",
                 )
@@ -292,4 +335,76 @@ private fun Tips(onClose: () -> Unit, onClaudeInfo: () -> Unit, onPin: () -> Uni
 private fun Tip(title: String, body: String) {
     Text(title, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
     Text(body, style = MaterialTheme.typography.bodySmall)
+}
+
+@Composable
+private fun SettingsDialog(onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    var enabled by remember { mutableStateOf(GatePrefs.serviceEnabled(ctx)) }
+    var interval by remember { mutableIntStateOf(GatePrefs.intervalMin(ctx)) }
+    var netRecheck by remember { mutableStateOf(GatePrefs.netRecheck(ctx)) }
+    // 从系统设置回来时刷新「已开启 / 未开启」
+    androidx.lifecycle.compose.LifecycleResumeEffect(Unit) {
+        enabled = GatePrefs.serviceEnabled(ctx)
+        onPauseOrDispose { }
+    }
+    AlertDialog(
+        onDismissRequest = onClose,
+        title = { Text("设置") },
+        text = {
+            Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+                Text("Claude 打开时先检查网络", fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (enabled) "现在：已开启" else "现在：未开启",
+                    color = if (enabled) GOOD else MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 2.dp),
+                )
+                Text(
+                    "开启后，不管从哪里打开 Claude（原版图标、通知、最近任务），或者把它从后台切回来，都会先弹出这张检查卡片盖在 Claude 上面：" +
+                        "点「打开」继续用 Claude，点「取消」回到桌面。\n\n" +
+                        "怎么开：点下面的按钮进入系统的「无障碍」设置，找到「To Claude」（荣耀 / 华为一般在「已安装的服务」或「已下载的应用」里），打开它。" +
+                        "系统会提示它「能查看屏幕上的所有内容」——这是所有无障碍服务通用的说法；To Claude 只接收「哪个 App 来到了前台」的通知（只有 App 的包名），" +
+                        "不读取屏幕上的任何文字和内容，不收集、不上传任何信息。\n\n" +
+                        "要知道的事：\n" +
+                        "• 安卓不允许拦住别的 App 启动：卡片弹出前那一瞬间，Claude 已经在前台、可能已经联网了。卡片是「盖住」，不是「拦住」。\n" +
+                        "• 手机为了省电可能会悄悄关掉无障碍服务。如果发现不弹了，回来这里看「现在」是不是变成了未开启；" +
+                        "荣耀 / 华为可以在「设置 → 应用和服务 → 应用启动管理 → To Claude」关掉「自动管理」，打开「允许后台活动」。\n" +
+                        "• 开着这个功能时，To Claude 还会在 Claude 升级换图标后，自动刷新桌面上的「Claude」图标。\n" +
+                        "• 如果同时在用 EasyClash 的「Claude 联网前先确认」，两个都会弹卡片，建议只开一个。",
+                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp),
+                )
+                OutlinedButton(
+                    onClick = { runCatching { ctx.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } },
+                    modifier = Modifier.padding(top = 8.dp),
+                ) { Text(if (enabled) "去系统设置关闭" else "去系统设置开启") }
+
+                Text("多久内不重复检查", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 16.dp))
+                Text(
+                    "点过「打开」之后，在这段时间里切回 Claude 不再弹卡片，免得来回切换时总被打断。",
+                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp, bottom = 4.dp),
+                )
+                listOf(0 to "每次切回 Claude 都检查", 5 to "5 分钟内不重复", 10 to "10 分钟内不重复（默认）", 30 to "30 分钟内不重复").forEach { (m, label) ->
+                    Row(
+                        Modifier.fillMaxWidth().clickable { interval = m; GatePrefs.setInterval(ctx, m) }.padding(vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        androidx.compose.material3.RadioButton(selected = interval == m, onClick = { interval = m; GatePrefs.setInterval(ctx, m) })
+                        Text(label, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+
+                Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("网络变了就重新检查", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "开关代理、换 Wi-Fi 或流量、代理重新连接后，哪怕还在上面的时间内，切回 Claude 也重新弹卡片。默认开。",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    androidx.compose.material3.Switch(checked = netRecheck, onCheckedChange = { netRecheck = it; GatePrefs.setNetRecheck(ctx, it) })
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("完成") } },
+    )
 }
