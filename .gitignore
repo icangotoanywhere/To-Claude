@@ -1,0 +1,8 @@
+.gradle/
+build/
+local.properties
+*.apk
+# 发布签名密钥及其配置：绝不能进仓库
+keystore.properties
+*.jks
+*.keystore
