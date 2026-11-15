@@ -15,8 +15,8 @@ android {
         applicationId = "com.toclaude"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.0.3"
     }
 
     // 发布签名：和 EasyClash 用同一把固定密钥（D:\EasyClash\signing）。

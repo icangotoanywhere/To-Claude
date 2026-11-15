@@ -294,6 +294,11 @@ private fun Tips(onClose: () -> Unit, onClaudeInfo: () -> Unit, onPin: () -> Uni
         text = {
             Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
                 Tip(
+                    "已经在用 EasyClash？",
+                    "那就不用装 To Claude 了：EasyClash「高级」页的「Claude 专用」已经包含这里的全部功能（桌面「Claude」图标、打开前的网络检查），" +
+                        "还能在网络上真正挡住 Claude、确认后才放行。两个都装会弹两次卡片，建议卸载 To Claude。To Claude 是给用别的代理软件的朋友准备的。",
+                )
+                Tip(
                     "在桌面放一个「Claude」图标",
                     "点下面的按钮，桌面上会多一个「Claude」图标：样子就是手机上 Claude App 自己的图标（角上会有 To Claude 的小标，" +
                         "和原版区分开），点它先看网络，确认后再打开 Claude。以后就用它代替原版图标，To Claude 自己的图标也可以收起来。",
